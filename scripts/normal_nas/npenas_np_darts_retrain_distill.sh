@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=2 python tools_open_domain/train_darts_cifar10_distill.py --seed 1 --model_name 02ee5917e14c87816f6894edf5f2f5c1afb3cd9f649b9623a8b28842a619e993.pkl  --save_dir ./train_output_npenas/npenas_open_domain_darts/

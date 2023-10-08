@@ -1,37 +1,11 @@
 import torch
+from torch.utils.data.dataloader import DataLoader
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 
-
-class _RepeatSampler(object):
-    """ Sampler that repeats forever.
-
-    Args:
-        sampler (Sampler)
-    """
-
-    def __init__(self, sampler):
-        self.sampler = sampler
-
-    def __iter__(self):
-        while True:
-            yield from iter(self.sampler)
-
-
-class FastDataLoader(torch.utils.data.dataloader.DataLoader):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        object.__setattr__(self, 'batch_sampler', _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
-
-    def __len__(self):
-        return len(self.batch_sampler.sampler)
-
-    def __iter__(self):
-        for i in range(len(self)):
-            yield next(self.iterator)
+import os
+from typing import Any, Callable, Optional, Tuple
 
 
 class Cifar10Train(torchvision.datasets.CIFAR10):
@@ -49,6 +23,52 @@ class Cifar10Val(torchvision.datasets.CIFAR10):
     ]
 
 
+class Cifar10Distill(torchvision.datasets.CIFAR10):
+
+    def __init__(
+        self,
+        root: str,
+        train: bool = True,
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+        download: bool = False,
+    ) -> None:
+        super().__init__(root, train, transform, target_transform, download)
+        # self.classes, self.class_to_idx
+        self.teacher_features = torch.load(os.path.join(self.root, "cifar-10-logits.pt"))
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        img, target = super().__getitem__(index)
+        teacher_features = self.teacher_features[index]  # image embeddings
+        # teacher_features = self.teacher_features[target]  # text embeddings
+        return img, target, teacher_features.to(torch.float32)
+
+
+def get_cifar10_distill_train_set(root_path, transform=None):
+    if transform is None:
+        transform = transforms.Compose(
+            [transforms.RandomCrop(size=32, padding=(4, 4, 4, 4)),
+             transforms.RandomHorizontalFlip(),
+             transforms.ToTensor(),
+             transforms.Normalize(mean=[0.491, 0.482, 0.447], std=[0.247, 0.243, 0.262])])
+    train_set = Cifar10Distill(root=root_path, train=True, download=False, transform=transform)
+    return train_set
+
+
+def get_cifar10_distill_train_and_val_loader(train_set, train_portion=0.7, batch_size=128):
+    num_train = len(train_set)
+    indices = list(range(num_train))
+    split = int(np.floor(train_portion * num_train))
+
+    train_loader = DataLoader(train_set, batch_size=batch_size,
+                              num_workers=16, pin_memory=True, persistent_workers=True,
+                                  sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]))
+    val_loader = DataLoader(train_set, batch_size=batch_size,
+                            num_workers=16, pin_memory=True, persistent_workers=True,
+                                sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]))
+    return train_loader, val_loader
+
+
 def get_cifar10_train_and_val_loader(root_path, train_portion=0.7, transform=None, batch_size=128):
     if transform is None:
         transform = transforms.Compose(
@@ -61,12 +81,12 @@ def get_cifar10_train_and_val_loader(root_path, train_portion=0.7, transform=Non
     indices = list(range(num_train))
     split = int(np.floor(train_portion * num_train))
 
-    train_loader = FastDataLoader(train_set, batch_size=batch_size,
-                                  num_workers=0, pin_memory=True,
-                                  sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]))
-    val_loader = FastDataLoader(train_set, batch_size=batch_size,
-                                num_workers=0, pin_memory=True,
-                                sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]))
+    train_loader = DataLoader(train_set, batch_size=batch_size,
+                              num_workers=16, pin_memory=True, persistent_workers=True,
+                              sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]))
+    val_loader = DataLoader(train_set, batch_size=batch_size,
+                            num_workers=16, pin_memory=True, persistent_workers=True,
+                            sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]))
     return train_loader, val_loader
 
 
@@ -80,8 +100,8 @@ def get_cifar10_train_loader(root_path, transform=None, batch_size=128):
     trainset = Cifar10Train(root=root_path, train=True,
                             download=False, transform=transform)
 
-    trainloader = FastDataLoader(trainset, batch_size=batch_size,
-                                 shuffle=True, num_workers=0, pin_memory=True)
+    trainloader = DataLoader(trainset, batch_size=batch_size,
+                             shuffle=True, num_workers=16, pin_memory=True, persistent_workers=True)
     return trainloader
 
 
@@ -92,8 +112,8 @@ def get_cifar10_val_loader(root_path, transform=None, batch_size=128):
              transforms.Normalize(mean=[0.491, 0.482, 0.447], std=[0.247, 0.243, 0.262])])
     valset = Cifar10Val(root=root_path, train=True,
                         download=False, transform=transform)
-    valloader = FastDataLoader(valset, batch_size=batch_size,
-                               shuffle=False, num_workers=0, pin_memory=True)
+    valloader = DataLoader(valset, batch_size=batch_size,
+                           shuffle=False, num_workers=16, pin_memory=True, persistent_workers=True)
     return valloader
 
 
@@ -104,8 +124,8 @@ def get_cifar10_test_loader(root_path, transform=None, batch_size=128):
              transforms.Normalize(mean=[0.491, 0.482, 0.447], std=[0.247, 0.243, 0.262])])
     testset = torchvision.datasets.CIFAR10(root=root_path, train=False,
                                            download=False, transform=transform)
-    testloader = FastDataLoader(testset, batch_size=batch_size,
-                                shuffle=False, num_workers=0, pin_memory=True)
+    testloader = DataLoader(testset, batch_size=batch_size,
+                            shuffle=False, num_workers=16, pin_memory=True, persistent_workers=True)
     return testloader
 
 

@@ -13,16 +13,16 @@ import torch.backends.cudnn as cudnn
 sys.path.append(os.getcwd())
 from ptflops import get_model_complexity_info
 from nas_lib.models_darts.datrs_neuralnet import DartsCifar10NeuralNet
-from nas_lib.utils.utils_darts import create_exp_dir, AvgrageMeter, top_accuracy, \
+from nas_lib.utils.utils_darts import create_exp_dir, AverageMeter, top_accuracy, \
     save_checkpoint, load_model
 from nas_lib.data.cifar10_dataset_retrain import transforms_cifar10, get_cifar10_full_train_loader, get_cifar10_full_test_loader
 from nas_lib.configs import cifar10_path
 
 
 def train(train_queue, model, criterion, optimizer, device):
-    objs = AvgrageMeter()
-    top1 = AvgrageMeter()
-    top5 = AvgrageMeter()
+    objs = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
     model.train()
 
     for step, (input, target) in enumerate(train_queue):
@@ -49,9 +49,9 @@ def train(train_queue, model, criterion, optimizer, device):
 
 
 def infer(valid_queue, model, criterion, device):
-    objs = AvgrageMeter()
-    top1 = AvgrageMeter()
-    top5 = AvgrageMeter()
+    objs = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
     model.eval()
     for step, (input, target) in enumerate(valid_queue):
         input = input.to(device)

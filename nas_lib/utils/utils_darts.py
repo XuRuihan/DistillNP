@@ -136,7 +136,7 @@ def top_accuracy(output, target, topk=(1,)):
     return res
 
 
-class AvgrageMeter(object):
+class AverageMeter(object):
     def __init__(self):
         self.reset()
 

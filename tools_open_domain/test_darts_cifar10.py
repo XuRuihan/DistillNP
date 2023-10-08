@@ -7,7 +7,7 @@ import numpy as np
 import os
 sys.path.append(os.getcwd())
 from nas_lib.models_darts.datrs_neuralnet import DartsCifar10NeuralNet
-from nas_lib.utils.utils_darts import AvgrageMeter, top_accuracy, load_model
+from nas_lib.utils.utils_darts import AverageMeter, top_accuracy, load_model
 import torch.backends.cudnn as cudnn
 from ptflops import get_model_complexity_info
 from nas_lib.data.cifar10_dataset_retrain import get_cifar10_full_test_loader, transforms_cifar10
@@ -16,9 +16,9 @@ import random
 
 
 def infer(valid_queue, model, criterion, device):
-    objs = AvgrageMeter()
-    top1 = AvgrageMeter()
-    top5 = AvgrageMeter()
+    objs = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
     model.eval()
     for step, (input, target) in enumerate(valid_queue):
         input = input.to(device)

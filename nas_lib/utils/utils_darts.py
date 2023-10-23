@@ -8,7 +8,7 @@ import shutil
 import pickle
 
 
-logger = logging.getLogger('nasbench_open_darts_cifar10')
+logger = logging.getLogger('open_darts_cifar10')
 
 
 
@@ -136,6 +136,55 @@ def top_accuracy(output, target, topk=(1,)):
     return res
 
 
+def mean_accuracy(pred, target, background=255):
+    pred = pred.argmax(1).flatten(1)
+    target = target.flatten(1)
+    return (pred[target!=background] == target[target!=background]).float().mean()
+
+
+# def mean_accuracy(pred, target, n_classes=21):
+#     pred = pred.argmax(1).flatten(1)
+#     target = target.flatten(1)
+#     accs = []
+#     for cls in range(n_classes):
+#         pred_inds = pred == cls
+#         target_inds = target == cls
+#         accs.append((pred_inds == target_inds).float().mean())
+#     return sum(accs) / n_classes
+
+
+def mean_iou(pred, target, n_classes=21):
+    # n_classes ：the number of classes in your dataset,not including background
+    # for mask and ground-truth label, not probability map
+    pred = pred.argmax(1)
+    batch_size = target.size(0)
+    Is, Us = [], []
+    for cls in range(n_classes):
+        pred_inds = (pred == cls).flatten(1)
+        target_inds = (target == cls).flatten(1)
+        Is.append(torch.logical_and(pred_inds, target_inds).sum(1))
+        Us.append(torch.logical_or(pred_inds, target_inds).sum(1))
+    Is = torch.stack(Is, dim=1)
+    Us = torch.stack(Us, dim=1)
+    Us = Us * (Us > 0).sum(1, keepdim=True)
+    return (Is[Us>0] / Us[Us>0]).sum() / batch_size
+
+    mious = []
+    for i in range(batch_size):
+        miou = []
+        # Ignore IoU for background class ("0")
+        for cls in range(n_classes):  # This goes from 1:n_classes-1 -> class "0" is ignored
+            pred_inds = pred[i] == cls
+            target_inds = target[i] == cls
+            intersection = torch.logical_and(pred_inds, target_inds).sum()  # Cast to long to prevent overflows
+            union = torch.logical_or(pred_inds, target_inds).sum()
+            if union > 0:
+                miou.append(intersection / union)
+        mious.append(sum(miou) / len(miou))
+
+    return sum(mious) / batch_size
+
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
@@ -176,7 +225,7 @@ def load_model(root, file_name):
     if not os.path.exists(file_path):
         file_path = os.path.join(root, 'model_pkl', file_name)
     with open(file_path, 'rb') as f:
-        gtyp = pickle.load(f)
+        gtyp = pickle.load(f)["genotype"]
     return gtyp
 
 
@@ -187,18 +236,18 @@ def model_converter(root, file_name):
     if not os.path.exists(file_path):
         file_path = os.path.join(root, 'model_pkl', file_name)
     with open(file_path, 'rb') as f:
-        gtyp = pickle.load(f)
-        print(type(gtyp))
-        print(gtyp)
-        gtyp_new = Genotype(normal=gtyp.normal,
-                            normal_concat=gtyp.normal_concat,
-                            reduce=gtyp.reduce,
-                            reduce_concat=gtyp.reduce_concat)
-        print(type(gtyp_new))
-        print(gtyp_new)
-        save_path = os.path.join(root, 'new', file_name)
-        with open(save_path, 'wb') as f:
-            pickle.dump(gtyp_new, f)
+        gtyp = pickle.load(f)["genotype"]
+    print(type(gtyp))
+    print(gtyp)
+    gtyp_new = Genotype(normal=gtyp.normal,
+                        normal_concat=gtyp.normal_concat,
+                        reduce=gtyp.reduce,
+                        reduce_concat=gtyp.reduce_concat)
+    print(type(gtyp_new))
+    print(gtyp_new)
+    save_path = os.path.join(root, 'new', file_name)
+    with open(save_path, 'wb') as f:
+        pickle.dump(gtyp_new, f)
     return gtyp
 
 

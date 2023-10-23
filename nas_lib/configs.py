@@ -397,6 +397,18 @@ def algo_params_open_domain(param_str):
         param = {'algo_name': 'gin_predictor', 'total_queries': 100, 'agent': 'gin_predictor', 'num_init': 10,
                  'allow_isomorphisms': False, 'k': 10, 'epochs': 300, 'batch_size': 32, 'lr': 0.005, 'encode_path': True,
                  'candidate_nums': 100}
+    elif param_str == 'gin_predictor_seg':
+        param = {'algo_name': 'gin_predictor_seg', 'total_queries': 100, 'agent': 'gin_predictor_seg', 'num_init': 10,
+                 'allow_isomorphisms': False, 'k': 10, 'epochs': 300, 'batch_size': 32, 'lr': 0.005, 'encode_path': True,
+                 'candidate_nums': 100}
+    elif param_str == 'narformer':
+        param = {'algo_name': 'narformer', 'total_queries': 100, 'agent': 'narformer', 'num_init': 10,
+                 'allow_isomorphisms': False, 'k': 10, 'epochs': 3000, 'batch_size': 128, 'lr': 0.0001, 'encode_path': True,
+                 'candidate_nums': 1000}
+    elif param_str == 'narformer_distill':
+        param = {'algo_name': 'narformer_distill', 'total_queries': 100, 'agent': 'narformer_distill', 'num_init': 10,
+                 'allow_isomorphisms': False, 'k': 10, 'epochs': 3000, 'batch_size': 128, 'lr': 0.0001, 'encode_path': True,
+                 'candidate_nums': 1000}
     else:
         raise NotImplementedError("This algorithm have not implement!")
     print('* Running experiment: ' + str(param))
@@ -404,6 +416,7 @@ def algo_params_open_domain(param_str):
 
 
 cifar10_path = '/home/xrh/datasets/cifar-10/'
+cifar100_path = '/home/xrh/datasets/cifar-100/'
 nas_bench_101_path = tf_records_path = \
     '/home/albert_wei/Disk_A/dataset_train/nas_bench_101/nasbench_only108.tfrecord'
 nas_bench_201_path = '/home/albert_wei/fdisk_a/dataset_train_2021/nasbench_201/NAS-Bench-201-v1_1-096897.pth'

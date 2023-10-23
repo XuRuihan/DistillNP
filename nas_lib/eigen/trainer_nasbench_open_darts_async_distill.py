@@ -3,7 +3,7 @@ from torch.multiprocessing import Process, Queue
 import torch
 import torch.nn.functional as F
 from nas_lib.utils.comm import setup_logger
-from nas_lib.utils.utils_darts import top_accuracy, AverageMeter
+from nas_lib.utils.utils_darts import AverageMeter, top_accuracy
 import time
 from nas_lib.configs import cifar10_path
 from nas_lib.data.cifar10_dataset import (
@@ -12,15 +12,18 @@ from nas_lib.data.cifar10_dataset import (
     get_cifar10_distill_train_set,
     get_cifar10_distill_train_and_val_loader,
 )
+from nas_lib.eigen.dkd import soft_target, dkd_loss
 import pickle
 import copy
 
 
-def async_macro_model_train(model_data, gpus, save_dir, dataset="cifar10"):
+def async_macro_model_train_distill(model_data, gpus, save_dir, dataset="cifar10"):
+    gpus = gpus * 2
     q = Queue(10)
     manager = multiprocessing.Manager()
     total_data_dict = manager.dict()
     p_producer = Process(target=model_producer, args=(model_data, q, gpus))
+    # time.sleep(3)
     p_consumers = [
         Process(
             target=model_consumer,
@@ -40,11 +43,11 @@ def async_macro_model_train(model_data, gpus, save_dir, dataset="cifar10"):
     data_dict = {}
     for model_idx, (
         hash_key,
-        val_acc,
-        test_acc,
+        val_err,
+        test_err,
         val_kd_loss,
     ) in total_data_dict.items():
-        data_dict[hash_key] = (100 - val_acc, 100 - test_acc, val_kd_loss)
+        data_dict[hash_key] = (val_err, test_err, val_kd_loss)
     return data_dict
 
 
@@ -68,21 +71,18 @@ def model_consumer(queue, gpu, save_dir, total_data_dict, model_data, dataset):
         model_idx = msg["idx"]
         model = model_data[model_idx]
         if dataset == "cifar10":
-            hash_key, val_acc, test_acc, val_kd_loss = model_trainer_cifar10(
+            hash_key, val_acc, test_acc, val_kd_loss = model_trainer_cifar10_distill(
                 model, gpu, logger, save_dir
             )
-            total_data_dict[model_idx] = [hash_key, val_acc, test_acc, val_kd_loss]
+            total_data_dict[model_idx] = [
+                hash_key,
+                100 - val_acc,
+                100 - test_acc,
+                val_kd_loss,
+            ]
 
 
-def soft_target(logits_student, logits_teacher, temperature=4.0):
-    log_pred_student = F.log_softmax(logits_student / temperature, dim=1)
-    pred_teacher = F.softmax(logits_teacher / temperature, dim=1)
-    loss_kd = F.kl_div(log_pred_student, pred_teacher, reduction="batchmean")
-    loss_kd *= temperature**2
-    return loss_kd
-
-
-def model_trainer_cifar10(
+def model_trainer_cifar10_distill(
     model,
     gpu,
     logger,
@@ -90,28 +90,17 @@ def model_trainer_cifar10(
     train_epochs=50,
     lr=0.025,
     momentum=0.9,
-    weight_deacy=3e-4,
+    weight_decay=3e-4,
+    auxiliary=False,
+    auxiliary_weight=0,
+    cutout=False,
+    cutout_length=0,
+    drop_path_prob=0.0,
+    grad_clip=5,
+    train_portion=0.5,
+    batch_size=64,
 ):
-    parameters = {
-        "auxiliary": False,
-        "auxiliary_weight": 0,
-        "cutout": False,
-        "cutout_length": 0,
-        "drop_path_prob": 0.0,
-        "grad_clip": 5,
-        "train_portion": 0.5,
-    }
-
-    auxiliary = parameters["auxiliary"]
-    auxiliary_weight = parameters["auxiliary_weight"]
-    cutout = parameters["cutout"]
-    cutout_length = parameters["cutout_length"]
-    drop_path_prob = parameters["drop_path_prob"]
-    train_portion = parameters["train_portion"]
-    grad_clip = parameters["grad_clip"]
-    batch_size = 256
-
-    torch.cuda.set_device(gpu)
+    torch.cuda.set_device(gpu % 4)
     hash_key = model.hashkey
     genotype = model.genotype
     train_trans, test_trans = transforms_cifar10(
@@ -125,11 +114,11 @@ def model_trainer_cifar10(
     model_train_data, model_val_data = get_cifar10_distill_train_and_val_loader(
         train_set, train_portion=train_portion, batch_size=batch_size
     )
-    device = torch.device("cuda:%d" % gpu)
+    device = torch.device("cuda:%d" % (gpu % 4))
     model.to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_deacy
+        model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, train_epochs, 0.000001, -1
@@ -146,7 +135,7 @@ def model_trainer_cifar10(
         running_loss = 0.0
         total_inference_time = 0
         start = time.time()
-        objs = AverageMeter()
+        losses = AverageMeter()
         ce_losses = AverageMeter()
         kd_losses = AverageMeter()
         top1 = AverageMeter()
@@ -160,9 +149,10 @@ def model_trainer_cifar10(
 
             begin_inference = time.time()
             outputs, outputs_aux = model(input, device)
-
             ce_loss = criterion(outputs, labels)
-            kd_loss = 9.0 * soft_target(outputs, teacher_logits)
+            kd_loss = min(epoch / train_epochs, 1.0) * dkd_loss(
+                outputs, teacher_logits, labels, alpha=0.25, beta=2.0, temperature=4.0
+            )
             loss = ce_loss + kd_loss
 
             if auxiliary:
@@ -176,7 +166,7 @@ def model_trainer_cifar10(
 
             prec1, prec5 = top_accuracy(outputs, labels, topk=(1, 5))
             n = input.size(0)
-            objs.update(loss.item(), n)
+            losses.update(loss.item(), n)
             ce_losses.update(ce_loss.item(), n)
             kd_losses.update(kd_loss.item(), n)
             top1.update(prec1.item(), n)
@@ -184,7 +174,7 @@ def model_trainer_cifar10(
 
             if i % 100 == 0:
                 logger.info(
-                    f"Train iter: {i:03d} loss: {objs.avg:.4f} ce_loss: {ce_losses.avg:.4f} kd_loss: {kd_losses.avg:.4f} top1: {top1.avg:.2f}% top5: {top5.avg:.2f}%"
+                    f"Train iter: {i:03d} loss: {losses.avg:.4f} ce_loss: {ce_losses.avg:.4f} kd_loss: {kd_losses.avg:.4f} top1: {top1.avg:.2f}% top5: {top5.avg:.2f}%"
                 )
             inference_time = time.time() - begin_inference
             total_inference_time += inference_time
@@ -193,23 +183,23 @@ def model_trainer_cifar10(
         running_loss_avg = running_loss / len(model_train_data)
         duration = time.time() - start
         logger.info(
-            f"Epoch: {epoch} training loss: {objs.avg:.6f} "
+            f"Epoch: {epoch} training loss: {losses.avg:.6f} "
             f"top1: {top1.avg:.2f}% time duration: {duration:.5f} "
             f"avg inference time: {total_inference_time / (i * 1.0):.5f}"
         )
-        loss_list.append(objs.avg)
+        loss_list.append(losses.avg)
         kd_loss_list.append(kd_losses.avg)
 
         # if epoch != 0 and epoch % 5 == 0:
         if True:
-            objs = AverageMeter()
+            losses = AverageMeter()
             ce_losses = AverageMeter()
             kd_losses = AverageMeter()
             top1 = AverageMeter()
             top5 = AverageMeter()
             model.eval()
             total = 0
-            with torch.no_grad():
+            with torch.inference_mode():
                 for data in model_val_data:
                     images, labels, teacher_logits = data
                     images = images.to(device)
@@ -217,11 +207,18 @@ def model_trainer_cifar10(
                     teacher_logits = teacher_logits.to(device)
                     outputs, _ = model(images, device)
                     ce_loss = criterion(outputs, labels)
-                    kd_loss = 9.0 * soft_target(outputs, teacher_logits)
+                    kd_loss = dkd_loss(
+                        outputs,
+                        teacher_logits,
+                        labels,
+                        alpha=0.25,
+                        beta=2.0,
+                        temperature=4.0,
+                    )
                     loss = ce_loss + kd_loss
                     prec1, prec5 = top_accuracy(outputs, labels, topk=(1, 5))
                     n = images.size(0)
-                    objs.update(loss.item(), n)
+                    losses.update(loss.item(), n)
                     ce_losses.update(ce_loss.item(), n)
                     kd_losses.update(kd_loss.item(), n)
                     top1.update(prec1.item(), n)
@@ -234,9 +231,7 @@ def model_trainer_cifar10(
                 best_val_acc = val_acc
                 best_val_kd_loss = val_kd_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
-            logger.info(
-                f"Valid accuracy: {val_acc:.3f}% kd_loss: {val_kd_loss:.4f}"
-            )
+            logger.info(f"Valid accuracy: {val_acc:.3f}% kd_loss: {val_kd_loss:.4f}")
             val_acc_list.append(val_acc)
     model.load_state_dict(best_model_wts)
     model.eval()

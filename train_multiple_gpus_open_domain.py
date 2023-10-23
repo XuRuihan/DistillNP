@@ -19,7 +19,7 @@ if __name__ == "__main__":
     parser.add_argument('--search_space', type=str, default='darts', help='darts')
     parser.add_argument('--gpus', type=int, default=1, help='Number of gpus')
     parser.add_argument('--algorithm', type=str, default='gin_predictor',
-                        choices=['gin_uncertainty_predictor', 'gin_predictor'], help='which parameters to use')
+                        choices=['gin_uncertainty_predictor', 'gin_predictor', 'gin_predictor_seg', 'narformer', 'narformer_distill'], help='which parameters to use')
     parser.add_argument('--output_filename', type=str, default=random_id(64), help='name of output files')
     parser.add_argument('--node_nums', type=int, default=4, help='cell num')
     parser.add_argument('--log_level', type=str, default='DEBUG', help='information logging level')
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         os.mkdir(os.path.join(save_dir, 'pre_train_models'))
     # 2. build architecture training dataset
     arch_dataset = build_open_search_space_dataset(args.search_space)
-    logger = setup_logger("nasbench_open_%s_cifar10" % args.search_space, args.save_dir, 0, log_level=args.log_level)
+    logger = setup_logger("open_%s_cifar10" % args.search_space, args.save_dir, 0, log_level=args.log_level)
     algo_info = algo_params_open_domain(args.algorithm)
     algo_info['total_queries'] = args.budget
     starttime = time.time()
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     else:
         results, result_keys = compute_darts_test_losses(data, temp_k, total_queries=algo_info['total_queries'])
         algo_result = np.round(results, 5)
-    print(algo_result)
+    logger.info(algo_result)
 
     with open(file_name, 'wb') as f:
         pickle.dump(results, f)

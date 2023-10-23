@@ -3,13 +3,13 @@ from hashlib import sha256
 from nas_lib.eigen.trainer_nasbench_open_darts_async import async_macro_model_train
 from nas_lib.models_darts.darts_graph import nasbench2graph2
 import numpy as np
-from nas_lib.eigen.trainer_predictor import NasBenchGinPredictorTrainer
+from nas_lib.eigen.trainer_narformer import NarFormerPredictorTrainer
 import torch
 import random
 import torch.backends.cudnn as cudnn
 
 
-def gin_predictor_search_open(
+def narformer_search_open(
     search_space,
     algo_info,
     logger,
@@ -53,7 +53,7 @@ def gin_predictor_search_open(
     ]
     model_keys.extend(data_dict_keys)
     for i, d in enumerate(data_dict):
-        macro_graph_dict[data_dict_keys[i]] = list(d)
+        macro_graph_dict[data_dict_keys[i]] = list(d)  # [arch, encoding]
     darts_neural_dict = search_space.assemble_cifar10_neural_net(data_dict)
     data = async_macro_model_train(
         model_data=darts_neural_dict, gpus=gpus, save_dir=save_dir, dataset=dataset
@@ -70,12 +70,9 @@ def gin_predictor_search_open(
         val_errors = np.array([macro_graph_dict[hashkey][2] for hashkey in model_keys])
 
         # Gather training NNs.
-        arch_data_edge_idx_list = []
-        arch_data_node_f_list = []
+        arch_data_list = []
         for arch in train_data:
-            edge_index, node_f = nasbench2graph2(arch)
-            arch_data_edge_idx_list.append(edge_index)
-            arch_data_node_f_list.append(node_f)
+            arch_data_list.append(arch)
 
         # Gather candidate NNs.
         candidate_graph_dict = {}
@@ -96,35 +93,18 @@ def gin_predictor_search_open(
         xcandidates = search_space.assemble_graph(
             candidate_graph_dict, candidate_dict_keys
         )
-        candiate_edge_list = []
-        candiate_node_list = []
+        candiate_list = []
         for cand in xcandidates:
-            edge_index, node_f = nasbench2graph2(cand)
-            candiate_edge_list.append(edge_index)
-            candiate_node_list.append(node_f)
+            candiate_list.append(cand)
 
         # Train Predictor
-        meta_neuralnet = NasBenchGinPredictorTrainer(
-            lr=lr,
-            epochs=epochs,
-            train_images=len(arch_data_edge_idx_list),
-            batch_size=batch_size,
-            input_dim=11,
-            agent_type="gin_gaussian",
-            rate=20.0,
+        meta_neuralnet = NarFormerPredictorTrainer(
+            lr=lr, epochs=epochs, batch_size=batch_size, rate=20.0
         )
-        meta_neuralnet.fit(
-            arch_data_edge_idx_list, arch_data_node_f_list, val_errors, logger=logger
-        )
-        pred_train = (
-            meta_neuralnet.pred(arch_data_edge_idx_list, arch_data_node_f_list)
-            .cpu()
-            .numpy()
-        )
+        meta_neuralnet.fit(arch_data_list, val_errors, logger=logger)
+        pred_train = meta_neuralnet.pred(arch_data_list).cpu().numpy()
         # Predict Candidates
-        acc_pred = (
-            meta_neuralnet.pred(candiate_edge_list, candiate_node_list).cpu().numpy()
-        )
+        acc_pred = meta_neuralnet.pred(candiate_list).cpu().numpy()
         candidate_np = acc_pred
         sorted_indices = np.argsort(candidate_np)
 

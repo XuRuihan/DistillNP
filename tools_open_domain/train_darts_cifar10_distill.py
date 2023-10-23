@@ -15,23 +15,29 @@ from ptflops import get_model_complexity_info
 from nas_lib.models_darts.darts_neuralnet import DartsCifar10NeuralNet
 from nas_lib.utils.utils_darts import create_exp_dir, AverageMeter, top_accuracy, \
     save_checkpoint, load_model
-from nas_lib.data.cifar10_dataset_retrain import transforms_cifar10, get_cifar10_full_train_loader, get_cifar10_full_test_loader
+from nas_lib.data.cifar10_dataset_retrain import transforms_cifar10, get_cifar10_full_train_loader_distill, get_cifar10_full_test_loader
 from nas_lib.configs import cifar10_path
+from nas_lib.eigen.dkd import soft_target, dkd_loss
 
 
-def train(train_queue, model, criterion, optimizer, device):
+def train(train_queue, model, criterion, optimizer, device, epoch):
     objs = AverageMeter()
+    ce_losses = AverageMeter()
+    kd_losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
     model.train()
 
-    for step, (input, target) in enumerate(train_queue):
+    for step, (input, target, teacher_logits) in enumerate(train_queue):
         input = input.to(device)
         target = target.to(device)
-
+        teacher_logits = teacher_logits.to(device)
         optimizer.zero_grad()
         logits, logits_aux = model(input, device)
-        loss = criterion(logits, target)
+        ce_loss = criterion(logits, target)
+        # kd_loss = 1.0 * soft_target(logits, teacher_logits)
+        kd_loss = min(epoch / 400, 1.0) * dkd_loss(logits, teacher_logits, target, alpha=1.0, beta=8.0, temperature=4.0)
+        loss = ce_loss + kd_loss
         if args.auxiliary:
             loss_aux = criterion(logits_aux, target)
             loss += args.auxiliary_weight*loss_aux
@@ -41,11 +47,13 @@ def train(train_queue, model, criterion, optimizer, device):
         prec1, prec5 = top_accuracy(logits, target, topk=(1, 5))
         n = input.size(0)
         objs.update(loss.item(), n)
+        ce_losses.update(ce_loss.item(), n)
+        kd_losses.update(kd_loss.item(), n)
         top1.update(prec1.item(), n)
         top5.update(prec5.item(), n)
         if step % args.report_freq == 0 and step != 0:
             logging.info(
-                f"Train iter: {step:03d} loss: {objs.avg:.4f} top1: {top1.avg:.2f}% top5: {top5.avg:.2f}%"
+                f"Train iter: {step:03d} loss: {objs.avg:.4f} ce_loss: {ce_losses.avg:.4f} kd_loss: {kd_losses.avg:.4f} top1: {top1.avg:.2f}% top5: {top5.avg:.2f}%"
             )
     return top1.avg, objs.avg
 
@@ -154,7 +162,7 @@ if __name__ == "__main__":
     )
 
     train_trans, test_trans = transforms_cifar10(cutout=True, cutout_length=16)
-    model_train_data = get_cifar10_full_train_loader(cifar10_path, transform=train_trans, batch_size=96)
+    model_train_data = get_cifar10_full_train_loader_distill(cifar10_path, transform=train_trans, batch_size=96)
     model_test_data = get_cifar10_full_test_loader(cifar10_path, transform=test_trans, batch_size=48)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, 0.000001, -1)
 
@@ -164,7 +172,7 @@ if __name__ == "__main__":
         logging.info('epoch %d lr %e', epoch, scheduler.get_lr()[0])
         model.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 
-        train_acc, train_obj = train(model_train_data, model, criterion, optimizer, device)
+        train_acc, train_obj = train(model_train_data, model, criterion, optimizer, device, epoch)
         logging.info('train_acc %f', train_acc)
 
         valid_acc_top1, valid_acc_top5, valid_obj = infer(model_test_data, model, criterion, device)

@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 import os
 sys.path.append(os.getcwd())
-from nas_lib.models_darts.datrs_neuralnet import DartsCifar10NeuralNet
+from nas_lib.models_darts.darts_neuralnet import DartsCifar10NeuralNet
 from nas_lib.utils.utils_darts import AverageMeter, top_accuracy, load_model
 import torch.backends.cudnn as cudnn
 from ptflops import get_model_complexity_info

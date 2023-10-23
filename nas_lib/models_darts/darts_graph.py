@@ -22,7 +22,7 @@ NUM_VERTICES = 15
 def nasbench2graph2(data):
     matrix, ops = data[0], data[1]
     node_feature = torch.zeros(NUM_VERTICES, 11)
-    edges = int(np.sum(matrix))
+    edges = int(np.sum(matrix[:NUM_VERTICES, :NUM_VERTICES]))
     edge_idx = torch.zeros(2, edges)
     counter = 0
     for i in range(NUM_VERTICES):

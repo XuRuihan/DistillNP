@@ -8,7 +8,7 @@ from gnn_lib import GINConv, global_mean_pool as gmp
 
 
 class NasBenchGINPredictorAgent(nn.Module):
-    def __init__(self, input_dim=6):
+    def __init__(self, input_dim=6, output_dim=1):
         super(NasBenchGINPredictorAgent, self).__init__()
         layers = []
         dim = 32
@@ -27,7 +27,7 @@ class NasBenchGINPredictorAgent(nn.Module):
 
         self.linear_before = torch.nn.Linear(dim, dim2, bias=True)
 
-        self.linear_mean = Linear(dim2, 1)
+        self.linear_mean = Linear(dim2, output_dim)
         layers.append(self.linear_mean)
         layers.append(self.linear_before)
         self.out_layer = torch.nn.Sigmoid()

@@ -2,8 +2,9 @@ import math
 import torch
 from ..layers.loss_gausian import Criterion
 import numpy as np
-from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.lr_scheduler import _LRScheduler, LambdaLR
 import torch.distributed as dist
+from functools import partial
 
 
 def gen_batch_idx(idx_list, batch_size):
@@ -18,60 +19,60 @@ def gen_batch_idx(idx_list, batch_size):
     return idx_batch_list
 
 
-def make_agent_optimizer(model, base_lr, weight_deacy=1e-4, bias_multiply=True):
+def make_agent_optimizer(model, base_lr, weight_decay=1e-4, bias_multiply=True):
     params = []
     for key, value in model.named_parameters():
         if not value.requires_grad:
             continue
         lr = base_lr
-        weight_decay = weight_deacy
+        wd = weight_decay
         if "bias" in key:
             if bias_multiply:
                 lr = base_lr*2.0
             else:
                 lr = base_lr
-            weight_decay = 0.0
-        params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
+            wd = 0.0
+        params += [{"params": [value], "lr": lr, "weight_decay": wd}]
     optimizer = torch.optim.Adam(params, base_lr, (0.0, 0.9))
     return optimizer
 
 
-def make_agent_optimizer_std(model, base_lr, fileds='', weight_deacy=1e-4, bias_multiply=True):
+def make_agent_optimizer_std(model, base_lr, fields='', weight_decay=1e-4, bias_multiply=True):
     params = []
     for key, value in model.named_parameters():
-        if fileds not in key:
+        if fields not in key:
             continue
         if not value.requires_grad:
             continue
         lr = base_lr
-        weight_decay = weight_deacy
+        wd = weight_decay
         if "bias" in key:
             if bias_multiply:
                 lr = base_lr*2.0
             else:
                 lr = base_lr
-            weight_decay = 0.0
-        params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
+            wd = 0.0
+        params += [{"params": [value], "lr": lr, "weight_decay": wd}]
     optimizer = torch.optim.Adam(params, base_lr, (0.0, 0.9))
     return optimizer
 
 
-def make_agent_optimizer_mean(model, base_lr, fileds='', weight_deacy=1e-4, bias_multiply=True):
+def make_agent_optimizer_mean(model, base_lr, fields='', weight_decay=1e-4, bias_multiply=True):
     params = []
     for key, value in model.named_parameters():
-        if fileds in key:
+        if fields in key:
             continue
         if not value.requires_grad:
             continue
         lr = base_lr
-        weight_decay = weight_deacy
+        wd = weight_decay
         if "bias" in key:
             if bias_multiply:
                 lr = base_lr*2.0
             else:
                 lr = base_lr
-            weight_decay = 0.0
-        params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
+            wd = 0.0
+        params += [{"params": [value], "lr": lr, "weight_decay": wd}]
     optimizer = torch.optim.Adam(params, base_lr, (0.0, 0.9))
     return optimizer
 
@@ -91,6 +92,57 @@ def get_loss_criteria(loss_type):
     else:
         raise ValueError('This loss type does not support!')
     return criterion
+
+
+def _get_linear_schedule_with_warmup_lr_lambda(
+    current_step: int,
+    *,
+    num_warmup_steps: int,
+    num_training_steps: int,
+    min_ratio: float = 1e-2,
+):
+    if current_step < num_warmup_steps:
+        return float(current_step) / float(max(1, num_warmup_steps))
+    return max(
+        min_ratio,
+        float(num_training_steps - current_step)
+        / float(max(1, num_training_steps - num_warmup_steps)),
+    )
+
+
+def get_linear_schedule_with_warmup(
+    optimizer,
+    num_warmup_steps: int,
+    num_training_steps: int,
+    last_epoch: int = -1,
+    min_ratio: float = 1e-2,
+):
+    """
+    Create a schedule with a learning rate that decreases linearly from the initial lr set in the optimizer to 0, after
+    a warmup period during which it increases linearly from 0 to the initial lr set in the optimizer.
+
+    Args:
+        optimizer ([`~torch.optim.Optimizer`]):
+            The optimizer for which to schedule the learning rate.
+        num_warmup_steps (`int`):
+            The number of steps for the warmup phase.
+        num_training_steps (`int`):
+            The total number of training steps.
+        last_epoch (`int`, *optional*, defaults to -1):
+            The index of the last epoch when resuming training.
+
+    Return:
+        `torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
+    """
+
+    lr_lambda = partial(
+        _get_linear_schedule_with_warmup_lr_lambda,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps,
+        min_ratio=min_ratio,
+    )
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
 
 
 class CosineLR(_LRScheduler):

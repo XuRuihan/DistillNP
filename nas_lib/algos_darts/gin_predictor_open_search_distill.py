@@ -68,6 +68,9 @@ def gin_predictor_search_open(
     while query <= total_queries:
         train_data = search_space.assemble_graph(macro_graph_dict, model_keys)
         val_errors = np.array([macro_graph_dict[hashkey][2] for hashkey in model_keys])
+        val_kd_losses = np.array(
+            [macro_graph_dict[hashkey][4] for hashkey in model_keys]
+        )
 
         # Gather training NNs.
         arch_data_edge_idx_list = []
@@ -114,7 +117,11 @@ def gin_predictor_search_open(
             rate=20.0,
         )
         meta_neuralnet.fit(
-            arch_data_edge_idx_list, arch_data_node_f_list, val_errors, logger=logger
+            arch_data_edge_idx_list,
+            arch_data_node_f_list,
+            val_errors,
+            val_kd_losses,
+            logger=logger,
         )
         pred_train = (
             meta_neuralnet.pred(arch_data_edge_idx_list, arch_data_node_f_list)
@@ -125,7 +132,7 @@ def gin_predictor_search_open(
         acc_pred = (
             meta_neuralnet.pred(candiate_edge_list, candiate_node_list).cpu().numpy()
         )
-        candidate_np = acc_pred
+        candidate_np = acc_pred[:, 1]  # acc_pred[:, 0] +
         sorted_indices = np.argsort(candidate_np)
 
         # Select Highest Candidates
@@ -155,7 +162,10 @@ def gin_predictor_search_open(
             macro_graph_dict[hashkey].extend(v)
 
         # Step Info
-        predictor_error = np.mean(np.abs(pred_train - val_errors)).item()
+        predictor_error = np.mean(np.abs(pred_train[:, 0] - val_errors)).item()
+        predictor_kd_loss_error = np.mean(
+            np.abs(pred_train[:, 1] - val_kd_losses)
+        ).item()
         val_errors = np.array([macro_graph_dict[hashkey][2] for hashkey in model_keys])
 
         if verbose:
@@ -163,6 +173,7 @@ def gin_predictor_search_open(
             logger.info(
                 f"Query: {query}  "
                 f"Predictor error: {predictor_error:.4f}  "
+                f"Predictor kd_loss error: {predictor_kd_loss_error:.4f}  "
                 f"Current Top 5 NNs' val errors: {top_5_loss}"
             )
         query += len(temp_candidate_train_arch)

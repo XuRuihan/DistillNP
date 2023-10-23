@@ -1,6 +1,6 @@
 from .arch_darts import ArchDarts
 import numpy as np
-from ..models_darts.datrs_neuralnet import DartsCifar10NeuralNet
+from ..models_darts.darts_neuralnet import DartsCifar10NeuralNet, DartsADENeuralNet, DartsVOCNeuralNet
 from ..utils.utils_darts import convert_to_genotype, count_parameters_in_MB
 from hashlib import sha256
 import logging
@@ -17,7 +17,7 @@ OPS = ['none',
        ]
 
 
-logger = logging.getLogger('nasbench_open_darts_cifar10')
+logger = logging.getLogger('open_darts_cifar10')
 
 
 class DataSetDarts:
@@ -230,5 +230,50 @@ class DataSetDarts:
             dart_neural.drop_path_prob = 0
         return darts_neural_dict
 
+    def assemble_ade20k_neural_net(self, data_dict):
+        darts_neural_dict = {}
+        parameters = {
+            'init_channels': 16,
+            'cifar_classed': 150,
+            'layers': 8,
+            'auxiliary': False,
+            'stem_mult': 3
+        }
+        for data in data_dict:
+            genotype = convert_to_genotype(data[0])
+            k = sha256(str(genotype).encode('utf-8')).hexdigest()
+            dart_neural = DartsADENeuralNet(C=parameters['init_channels'],
+                                                num_classes=parameters['cifar_classed'],
+                                                layers=parameters['layers'],
+                                                auxiliary=parameters['auxiliary'],
+                                                genotype=genotype,
+                                                key=k)
+            darts_neural_dict[k] = dart_neural
+            logger.info(k)
+            logger.info(count_parameters_in_MB(dart_neural))
+            dart_neural.drop_path_prob = 0
+        return darts_neural_dict
 
-
+    def assemble_voc_neural_net(self, data_dict):
+        darts_neural_dict = {}
+        parameters = {
+            'init_channels': 16,
+            'cifar_classed': 21,
+            'layers': 8,
+            'auxiliary': False,
+            'stem_mult': 3
+        }
+        for data in data_dict:
+            genotype = convert_to_genotype(data[0])
+            k = sha256(str(genotype).encode('utf-8')).hexdigest()
+            dart_neural = DartsVOCNeuralNet(C=parameters['init_channels'],
+                                                num_classes=parameters['cifar_classed'],
+                                                layers=parameters['layers'],
+                                                auxiliary=parameters['auxiliary'],
+                                                genotype=genotype,
+                                                key=k)
+            darts_neural_dict[k] = dart_neural
+            logger.info(k)
+            logger.info(count_parameters_in_MB(dart_neural))
+            dart_neural.drop_path_prob = 0
+        return darts_neural_dict

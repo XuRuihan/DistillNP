@@ -1,15 +1,15 @@
 from nas_lib.utils.utils_darts import init_nasbench_macro_cifar10, convert_to_genotype
 from hashlib import sha256
-from nas_lib.eigen.trainer_nasbench_open_darts_async import async_macro_model_train
+from nas_lib.eigen.trainer_nasbench_open_darts_async_distill import async_macro_model_train_distill
 from nas_lib.models_darts.darts_graph import nasbench2graph2
 import numpy as np
-from nas_lib.eigen.trainer_predictor import NasBenchGinPredictorTrainer
+from nas_lib.eigen.trainer_narformer import NarFormerPredictorTrainer
 import torch
 import random
 import torch.backends.cudnn as cudnn
 
 
-def gin_predictor_search_open(
+def narformer_distill_search_open(
     search_space,
     algo_info,
     logger,
@@ -55,7 +55,7 @@ def gin_predictor_search_open(
     for i, d in enumerate(data_dict):
         macro_graph_dict[data_dict_keys[i]] = list(d)
     darts_neural_dict = search_space.assemble_cifar10_neural_net(data_dict)
-    data = async_macro_model_train(
+    data = async_macro_model_train_distill(
         model_data=darts_neural_dict, gpus=gpus, save_dir=save_dir, dataset=dataset
     )
     for hashkey, v in data.items():
@@ -68,14 +68,14 @@ def gin_predictor_search_open(
     while query <= total_queries:
         train_data = search_space.assemble_graph(macro_graph_dict, model_keys)
         val_errors = np.array([macro_graph_dict[hashkey][2] for hashkey in model_keys])
+        val_kd_losses = np.array(
+            [macro_graph_dict[hashkey][4] for hashkey in model_keys]
+        )
 
         # Gather training NNs.
-        arch_data_edge_idx_list = []
-        arch_data_node_f_list = []
+        arch_data_list = []
         for arch in train_data:
-            edge_index, node_f = nasbench2graph2(arch)
-            arch_data_edge_idx_list.append(edge_index)
-            arch_data_node_f_list.append(node_f)
+            arch_data_list.append(arch)
 
         # Gather candidate NNs.
         candidate_graph_dict = {}
@@ -96,36 +96,21 @@ def gin_predictor_search_open(
         xcandidates = search_space.assemble_graph(
             candidate_graph_dict, candidate_dict_keys
         )
-        candiate_edge_list = []
-        candiate_node_list = []
+        candiate_list = []
         for cand in xcandidates:
-            edge_index, node_f = nasbench2graph2(cand)
-            candiate_edge_list.append(edge_index)
-            candiate_node_list.append(node_f)
+            candiate_list.append(cand)
 
         # Train Predictor
-        meta_neuralnet = NasBenchGinPredictorTrainer(
-            lr=lr,
-            epochs=epochs,
-            train_images=len(arch_data_edge_idx_list),
-            batch_size=batch_size,
-            input_dim=11,
-            agent_type="gin_gaussian",
-            rate=20.0,
+        rate = torch.tensor([20.0, 2.0])
+        meta_neuralnet = NarFormerPredictorTrainer(
+            lr=lr, epochs=epochs, batch_size=batch_size, rate=rate, out_dim=2
         )
-        meta_neuralnet.fit(
-            arch_data_edge_idx_list, arch_data_node_f_list, val_errors, logger=logger
-        )
-        pred_train = (
-            meta_neuralnet.pred(arch_data_edge_idx_list, arch_data_node_f_list)
-            .cpu()
-            .numpy()
-        )
+        target = np.stack([val_errors, val_kd_losses], -1)
+        meta_neuralnet.fit(arch_data_list, target, logger=logger)
+        pred_train = meta_neuralnet.pred(arch_data_list).cpu().numpy()
         # Predict Candidates
-        acc_pred = (
-            meta_neuralnet.pred(candiate_edge_list, candiate_node_list).cpu().numpy()
-        )
-        candidate_np = acc_pred
+        acc_pred = meta_neuralnet.pred(candiate_list).cpu().numpy()
+        candidate_np = acc_pred[:, 0] * acc_pred[:, 1]
         sorted_indices = np.argsort(candidate_np)
 
         # Select Highest Candidates
@@ -143,7 +128,7 @@ def gin_predictor_search_open(
         darts_candidate_neural_dict = search_space.assemble_cifar10_neural_net(
             temp_candidate_train_arch
         )
-        darts_candidate_acc = async_macro_model_train(
+        darts_candidate_acc = async_macro_model_train_distill(
             model_data=darts_candidate_neural_dict,
             gpus=gpus,
             save_dir=save_dir,
@@ -155,7 +140,10 @@ def gin_predictor_search_open(
             macro_graph_dict[hashkey].extend(v)
 
         # Step Info
-        predictor_error = np.mean(np.abs(pred_train - val_errors)).item()
+        predictor_error = np.mean(np.abs(pred_train[:, 0] - val_errors)).item()
+        predictor_kd_loss_error = np.mean(
+            np.abs(pred_train[:, 1] - val_kd_losses)
+        ).item()
         val_errors = np.array([macro_graph_dict[hashkey][2] for hashkey in model_keys])
 
         if verbose:
@@ -163,6 +151,7 @@ def gin_predictor_search_open(
             logger.info(
                 f"Query: {query}  "
                 f"Predictor error: {predictor_error:.4f}  "
+                f"Predictor kd_loss error: {predictor_kd_loss_error:.4f}  "
                 f"Current Top 5 NNs' val errors: {top_5_loss}"
             )
         query += len(temp_candidate_train_arch)

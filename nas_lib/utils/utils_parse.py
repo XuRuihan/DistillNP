@@ -17,15 +17,16 @@ def parse_single_macro_graph(single_model):
 
 def parse_single_darts_macro_graph(single_model):
     with open(single_model, 'rb') as f:
-        genotype = pickle.load(f)
-        models = pickle.load(f)
-        hash_key = pickle.load(f)
-        train_loss = pickle.load(f)
-        val_acc = pickle.load(f)
-        test_acc = pickle.load(f)
-        best_val_acc = pickle.load(f)
-        loss_list = pickle.load(f)
-        val_acc_list = pickle.load(f)
+        data = pickle.load(f)
+    genotype = data["genotype"]
+    models = data["model"]
+    hash_key = data["hash_key"]
+    train_loss = data["running_loss_avg"]
+    val_acc = data["val_acc"]
+    test_acc = data["test_acc"]
+    best_val_acc = data["best_val_acc"]
+    loss_list = data["loss_list"]
+    val_acc_list = data["val_acc_list"]
     return [genotype, models, hash_key, train_loss, val_acc, test_acc, best_val_acc, loss_list, val_acc_list]
 
 

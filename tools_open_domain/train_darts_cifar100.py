@@ -15,8 +15,8 @@ from ptflops import get_model_complexity_info
 from nas_lib.models_darts.darts_neuralnet import DartsCifar10NeuralNet
 from nas_lib.utils.utils_darts import create_exp_dir, AverageMeter, top_accuracy, \
     save_checkpoint, load_model
-from nas_lib.data.cifar10_dataset_retrain import transforms_cifar10, get_cifar10_full_train_loader, get_cifar10_full_test_loader
-from nas_lib.configs import cifar10_path
+from nas_lib.data.cifar100_dataset_retrain import transforms_cifar100, get_cifar100_full_train_loader, get_cifar100_full_test_loader
+from nas_lib.configs import cifar100_path
 
 
 def train(train_queue, model, criterion, optimizer, device):
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
 
-    CLASSES = 10
+    CLASSES = 100
 
     # set seed
     np.random.seed(seed)
@@ -153,9 +153,9 @@ if __name__ == "__main__":
         weight_decay=args.weight_decay
     )
 
-    train_trans, test_trans = transforms_cifar10(cutout=True, cutout_length=16)
-    model_train_data = get_cifar10_full_train_loader(cifar10_path, transform=train_trans, batch_size=96)
-    model_test_data = get_cifar10_full_test_loader(cifar10_path, transform=test_trans, batch_size=48)
+    train_trans, test_trans = transforms_cifar100(cutout=True, cutout_length=16)
+    model_train_data = get_cifar100_full_train_loader(cifar100_path, transform=train_trans, batch_size=96)
+    model_test_data = get_cifar100_full_test_loader(cifar100_path, transform=test_trans, batch_size=48)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, 0.000001, -1)
 
     best_acc_top1 = 0

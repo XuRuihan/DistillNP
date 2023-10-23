@@ -22,7 +22,7 @@ class NasBenchGinGaussianTrainer:
         self.agent_type = agent_type
 
         self.criterion = Criterion()
-        self.optimizer = make_agent_optimizer(self.nas_agent, base_lr=lr, weight_deacy=1e-4, bias_multiply=True)
+        self.optimizer = make_agent_optimizer(self.nas_agent, base_lr=lr, weight_decay=1e-4, bias_multiply=True)
         self.device = device
         self.nas_agent.to(self.device)
         self.lr = lr

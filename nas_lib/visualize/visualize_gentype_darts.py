@@ -40,7 +40,7 @@ def plot(genotype, filename):
 
 def load_model(file_path):
     with open(file_path, 'rb') as f:
-        gtyp = pickle.load(f)
+        gtyp = pickle.load(f)["genotype"]
     return gtyp
 
 
